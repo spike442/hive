@@ -1,40 +1,104 @@
 name: CI
 
-env:
-  DOCKER_BUILD_SUMMARY: false
-
 on:
+  pull_request:
+    paths-ignore:
+      - .github/quality/**
   push:
     branches: [main]
+    paths-ignore:
+      - .github/quality/**
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: anton-ci-${{ github.workflow }}-${{ github.ref }}
+  group: hive-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
+  changes:
+    name: Detect changed packages
     runs-on: ubuntu-24.04
+    outputs:
+      core: ${{ steps.changed.outputs.core }}
+      sre: ${{ steps.changed.outputs.sre }}
+      pr_review: ${{ steps.changed.outputs.pr_review }}
+      hive: ${{ steps.changed.outputs.hive }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: pip install -e ".[dev]"
-      - run: python -m compileall -q src tests
-      - run: pytest -q
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci --prefix frontend
-      - run: npm run build --prefix frontend
-      - run: python -m build
+      - id: changed
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            changed="sre/ pr_review/ hive/ packages/core/ .github/"
+          else
+            base="$BEFORE_SHA"
+            [[ "$EVENT_NAME" == "pull_request" ]] && base="$PR_BASE_SHA"
+            if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              changed="$(git diff --name-only "$base" "$HEAD_SHA")"
+            else
+              parent="$(git rev-parse "$HEAD_SHA^" 2>/dev/null || true)"
+              if [[ -n "$parent" ]]; then
+                changed="$(git diff --name-only "$parent" "$HEAD_SHA")"
+              else
+                changed="$(git diff-tree --no-commit-id --name-only -r "$HEAD_SHA")"
+              fi
+            fi
+          fi
+
+          if grep -qE '^packages/core/|^\.github/' <<< "$changed"; then
+            echo "core=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "core=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          for module in sre pr_review hive; do
+            if grep -qE "^${module}/|^packages/core/|^\.github/|^scripts/" <<< "$changed"; then
+              echo "${module}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${module}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+  core:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    uses: ./.github/workflows/core.yml
+    with:
+      operation: ci
+
+  sre:
+    needs: changes
+    if: needs.changes.outputs.sre == 'true'
+    uses: ./.github/workflows/sre.yml
+    with:
+      operation: ci
+    permissions:
+      contents: read
+
+  pr_review:
+    needs: changes
+    if: needs.changes.outputs.pr_review == 'true'
+    uses: ./.github/workflows/pr_review.yml
+    with:
+      operation: ci
+    permissions:
+      contents: read
+
+  hive:
+    needs: changes
+    if: needs.changes.outputs.hive == 'true'
+    uses: ./.github/workflows/hive.yml
+    with:
+      operation: ci
+    permissions:
+      contents: read

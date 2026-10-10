@@ -1,1 +1,0 @@
-"""Anton application use cases."""

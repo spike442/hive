@@ -1,0 +1,81 @@
+name: Hive CI/CD
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        required: true
+        type: string
+
+jobs:
+  ui:
+    if: inputs.operation == 'ci' || inputs.operation == 'publish'
+    name: UI build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hive/ui/package-lock.json
+      - name: Install UI dependencies
+        working-directory: hive/ui
+        run: npm ci
+      - name: Type-check and build UI
+        working-directory: hive/ui
+        run: npm run build
+
+  test:
+    if: inputs.operation == 'ci' || inputs.operation == 'publish'
+    name: tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/python-package
+        with:
+          package-dir: hive
+          stage: test
+
+  build:
+    if: inputs.operation == 'ci'
+    name: build
+    needs: [test, ui]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/python-package
+        with:
+          package-dir: hive
+          stage: build
+
+  publish:
+    if: inputs.operation == 'publish'
+    name: publish
+    needs: [test, ui]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: release
+        uses: ./.github/actions/create-module-tag
+        with:
+          package: hive
+          tag-prefix: hive
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: .
+          file: ./hive/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/hive:${{ steps.release.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

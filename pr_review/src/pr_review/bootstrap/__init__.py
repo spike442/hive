@@ -1,0 +1,1 @@
+"""PR Review application bootstrap."""

@@ -1,0 +1,70 @@
+name: Python package stage
+description: Run a standard Python package quality, test, or build stage
+inputs:
+  package-dir:
+    description: Package directory
+    required: true
+  stage:
+    description: Stage to run
+    required: true
+  install-core:
+    description: Install the shared core package before this package
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: ${{ inputs.package-dir }}/pyproject.toml
+    - name: Install package and tools
+      if: inputs.stage == 'quality' || inputs.stage == 'test'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: |
+        python -m pip install --upgrade pip
+        if [[ "${{ inputs.install-core }}" == "true" ]]; then
+          python -m pip install -e ../packages/core
+        fi
+        python -m pip install -e ".[dev]"
+    - name: Install quality tools
+      if: inputs.stage == 'quality'
+      shell: bash
+      run: python -m pip install "ruff>=0.11,<1" pip-audit
+    - name: Format
+      if: inputs.stage == 'quality'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: ruff format --check src tests
+    - name: Lint
+      if: inputs.stage == 'quality'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: ruff check src tests
+    - name: Compile
+      if: inputs.stage == 'quality'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: python -m compileall -q src tests
+    - name: Dependency audit
+      if: inputs.stage == 'quality'
+      shell: bash
+      run: pip-audit --local --skip-editable
+    - name: Test
+      if: inputs.stage == 'test'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        PYTHONPATH: ${{ github.workspace }}/${{ inputs.package-dir }}/src
+      run: pytest -q
+    - name: Install build
+      if: inputs.stage == 'build'
+      shell: bash
+      run: python -m pip install build
+    - name: Build package
+      if: inputs.stage == 'build'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: python -m build

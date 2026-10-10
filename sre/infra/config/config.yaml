@@ -1,0 +1,27 @@
+logging:
+  level: INFO
+
+repository:
+  url: https://github.com/spike442/homelab.git
+  branch: main
+  path: /data/repo
+
+prometheus:
+  url: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+
+s3:
+  endpoint: http://rustfs-svc.storage.svc.cluster.local:9000
+  region: us-east-1
+  bucket: hive
+  prompt_prefix: sre/prompts
+  system_key: system.md
+  prompt_sha256: 342e5ca02f2271737d56612c44d70aba530460ad2e1b6b35db4fbbb1824d6f52
+  max_bytes: 100000
+
+limits:
+  max_tool_calls: 16
+
+temporal:
+  address: temporal-frontend.messaging.svc.cluster.local:7233
+  namespace: hive
+  task_queue: sre

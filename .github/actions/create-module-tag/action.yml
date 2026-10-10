@@ -1,0 +1,39 @@
+name: Create module tag
+description: Read a package version, validate its release tag, and push it
+inputs:
+  package:
+    description: Directory containing the package pyproject.toml
+    required: true
+  tag-prefix:
+    description: Prefix used for the release tag
+    required: true
+outputs:
+  version:
+    description: Version read from pyproject.toml
+    value: ${{ steps.release.outputs.version }}
+  tag:
+    description: Complete release tag
+    value: ${{ steps.release.outputs.tag }}
+runs:
+  using: composite
+  steps:
+    - id: release
+      name: Create or validate release tag
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+      run: |
+        version="$(python -c 'import os, tomllib; package = os.environ["PACKAGE"]; print(tomllib.load(open(f"{package}/pyproject.toml", "rb"))["project"]["version"])')"
+        tag="${TAG_PREFIX}-${version}"
+
+        git fetch --tags origin
+        if git rev-parse "$tag" >/dev/null 2>&1; then
+          test "$(git rev-list -n 1 "$tag")" = "$GITHUB_SHA"
+        else
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+        fi
+
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,5 @@
+llm:
+  base_url: https://api.openai.com/v1
+  model: gpt-5.6-luna
+  prompt_cache_key: pr-review-v1
+  max_retries: 0

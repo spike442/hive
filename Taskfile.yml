@@ -2,40 +2,62 @@ version: '3'
 
 tasks:
   default:
+    desc: List available tasks
     cmds:
       - task --list
 
   setup:
-    desc: Create the project virtual environment and install dependencies
+    desc: Set up every project environment
     cmds:
-      - python3 -m venv .venv
+      - task: tools:install
+      - task: setup:sre
+      - task: setup:pr-review
+      - task: setup:hive
+
+  setup:sre:
+    desc: Create the SRE virtual environment and install dependencies
+    dir: ./sre
+    cmds:
+      - python3 -m venv --clear .venv
+      - .venv/bin/python -m pip install -e ../packages/core
       - .venv/bin/python -m pip install -e ".[dev]"
+
+  setup:pr-review:
+    desc: Sync the PR Review environment and development dependencies
+    dir: ./pr_review
+    cmds:
+      - uv sync --locked --extra dev
+
+  setup:hive:
+    desc: Create the Hive virtual environment and install dependencies
+    dir: ./hive
+    cmds:
+      - python3 -m venv --clear .venv
+      - .venv/bin/python -m pip install -e ../packages/core
+      - .venv/bin/python -m pip install -e ".[dev]"
+      - npm --prefix ui ci
+
+  tools:install:
+    desc: Install the shared pinned CLI tools
+    cmds:
       - aqua install
 
-  prompts:upload:
-    desc: Upload Anton prompts to RustFS using 1Password credentials
+  s3:upload:
+    desc: Upload agent prompts and shared knowledge to S3
     cmds:
-    - bash ./infra/scripts/upload-prompts.sh
+      - |
+        set -eu
+        for project in sre pr_review; do
+          bash ./scripts/upload-s3.sh "$project"
+        done
 
   database:apply:
-    desc: Apply versioned SQL using the 1Password password and the private PostgreSQL route
+    desc: Apply the shared Hive PostgreSQL schema
     cmds:
-    - bash ./infra/scripts/apply-sql.sh
+      - bash ./scripts/apply-sql.sh hive op://homelab/hive/DATABASE_PASSWORD
 
-  server:local:
-    desc: Start Anton API locally on port 8000 for the frontend
+  rag:index:
+    desc: Index changed S3 knowledge documents into Hive PostgreSQL
+    dir: ./hive
     cmds:
-    - .venv/bin/uvicorn server:app --app-dir src --host 127.0.0.1 --port 8000
-
-  front:
-    desc: Build and serve the local React frontend against the exposed Anton API
-    dir: frontend
-    cmds:
-    - npm install
-    - VITE_ANTON_API_URL=https://anton.timcasa.me VITE_ANTON_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("../pyproject.toml", "rb"))["project"]["version"])') npm run build
-    - python3 -m http.server 8080 --bind 127.0.0.1 --directory dist
-
-  front:react:
-    desc: Alias for the local React frontend using the exposed API
-    cmds:
-    - task: front
+      - PYTHONPATH="$PWD/../packages/core/src:$PWD/src" .venv/bin/python -m hive.rag.index_cli

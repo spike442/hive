@@ -1,0 +1,92 @@
+logging:
+  level: INFO
+
+health:
+  timeout_seconds: 3
+
+agents:
+  - domain: sre
+    base_url: http://sre.agents.svc.cluster.local:8080
+    job_interval_seconds: null
+  - domain: pr-review
+    base_url: http://pr-review.agents.svc.cluster.local:8090
+    job_interval_seconds: 3600
+
+database:
+  host: postgres0-rw.database.svc.cluster.local
+  port: 5432
+  name: hive
+  user: hive
+
+api:
+  allowed_origins:
+    - http://127.0.0.1:8080
+    - http://localhost:8080
+    - https://hive.timcasa.me
+
+ui:
+  hive_url: https://hive.timcasa.me
+
+kafka:
+  bootstrap_servers: kafka-kafka-bootstrap.messaging.svc.cluster.local:9093
+  security_protocol: SASL_PLAINTEXT
+  sasl_mechanisms: SCRAM-SHA-512
+  consumer_group: hive
+  max_poll_interval_seconds: 14400
+
+temporal:
+  address: temporal-frontend.messaging.svc.cluster.local:7233
+  namespace: hive
+  workflow_task_queue: hive
+  sre_task_queue: sre
+  pr_review_task_queue: pr-review
+  metrics_bind_address: 0.0.0.0:9091
+
+incident:
+  repository: homelab
+  path: /tmp/hive-repository
+  branch: main
+  branch_prefix: sre
+  version: 1.0.0
+  commit_author_name: hive
+  commit_author_email: hive@users.noreply.github.com
+  secret_material_patterns:
+    - '-----BEGIN [^-]*PRIVATE KEY-----'
+    - '\b(?:sk|ghp|github_pat|xox[baprs])-[A-Za-z0-9_-]{20,}\b'
+
+execution:
+  working_directory: /tmp
+  command_timeout_seconds: 120
+  max_output_bytes: 12000
+
+rag:
+  enabled: true
+  endpoint: http://rustfs-svc.storage.svc.cluster.local:9000
+  region: us-east-1
+  bucket: hive
+  embedding_model: text-embedding-3-small
+  embedding_dimensions: 1536
+  max_results: 8
+  sources:
+    - domain: sre
+      repository: homelab
+      prefix: sre/knowledge/homelab
+    - domain: sre
+      repository: hive
+      prefix: sre/knowledge/hive
+    - domain: sre
+      repository: dotfiles
+      prefix: sre/knowledge/dotfiles
+    - domain: pr-review
+      repository: homelab
+      prefix: pr-review/knowledge/homelab
+    - domain: pr-review
+      repository: hive
+      prefix: pr-review/knowledge/hive
+    - domain: pr-review
+      repository: dotfiles
+      prefix: pr-review/knowledge/dotfiles
+
+github:
+  api_url: https://api.github.com
+  merge_method: squash

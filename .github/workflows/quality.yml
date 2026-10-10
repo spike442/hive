@@ -1,0 +1,171 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hive-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core quality
+    runs-on: ubuntu-24.04
+    outputs:
+      passed: ${{ steps.result.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: checks
+        continue-on-error: true
+        uses: ./.github/actions/python-package
+        with:
+          package-dir: packages/core
+          stage: quality
+          install-core: "false"
+      - id: result
+        run: echo "passed=${{ steps.checks.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+
+  sre:
+    name: SRE quality
+    runs-on: ubuntu-24.04
+    outputs:
+      passed: ${{ steps.result.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: checks
+        continue-on-error: true
+        uses: ./.github/actions/python-package
+        with:
+          package-dir: sre
+          stage: quality
+      - id: result
+        run: echo "passed=${{ steps.checks.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+
+  pr_review:
+    name: PR Review quality
+    runs-on: ubuntu-24.04
+    outputs:
+      passed: ${{ steps.result.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: checks
+        continue-on-error: true
+        uses: ./.github/actions/python-package
+        with:
+          package-dir: pr_review
+          stage: quality
+      - id: result
+        run: echo "passed=${{ steps.checks.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+
+  hive:
+    name: Hive quality
+    runs-on: ubuntu-24.04
+    outputs:
+      passed: ${{ steps.result.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hive/ui/package-lock.json
+      - id: checks
+        continue-on-error: true
+        uses: ./.github/actions/python-package
+        with:
+          package-dir: hive
+          stage: quality
+      - name: UI quality
+        id: ui
+        continue-on-error: true
+        working-directory: hive/ui
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run build
+      - id: result
+        run: echo "passed=${{ steps.checks.outcome == 'success' && steps.ui.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+
+  quality_status:
+    name: Quality gate results
+    if: always()
+    needs: [core, sre, pr_review, hive]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Count passing package checks
+        env:
+          CORE: ${{ needs.core.outputs.passed }}
+          SRE: ${{ needs.sre.outputs.passed }}
+          PR_REVIEW: ${{ needs.pr_review.outputs.passed }}
+          HIVE: ${{ needs.hive.outputs.passed }}
+        run: |
+          passed=0
+          [[ "$CORE" == "true" ]] && passed=$((passed + 1))
+          [[ "$SRE" == "true" ]] && passed=$((passed + 1))
+          [[ "$PR_REVIEW" == "true" ]] && passed=$((passed + 1))
+          [[ "$HIVE" == "true" ]] && passed=$((passed + 1))
+          python3 - <<'PY'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          modules = (
+              ("sre", "SRE", "#6f42c1", "SRE"),
+              ("pr_review", "PR Review", "#0969da", "PR_REVIEW"),
+              ("hive", "Hive", "#e8590c", "HIVE"),
+          )
+          output = Path(".github/quality")
+          output.mkdir(parents=True, exist_ok=True)
+          for package, display_name, label_color, result_key in modules:
+              with Path(package, "pyproject.toml").open("rb") as project_file:
+                  version = tomllib.load(project_file)["project"]["version"]
+              result = os.environ[result_key]
+              message, color = {
+                  "true": ("passed", "brightgreen"),
+                  "false": ("failed", "red"),
+              }.get(result, ("pending", "lightgrey"))
+              badge = {
+                  "schemaVersion": 1,
+                  "label": f"{display_name} v{version}",
+                  "labelColor": label_color,
+                  "message": message,
+                  "color": color,
+              }
+              (output / f"{package.replace('_', '-')}.json").write_text(
+                  json.dumps(badge, indent=2) + "\n",
+                  encoding="utf-8",
+              )
+          PY
+          {
+            echo "## Quality gates: ${passed}/4 packages passed"
+            echo
+            echo "| Package | Result |"
+            echo "|---|---|"
+            echo "| core | ${CORE} |"
+            echo "| sre | ${SRE} |"
+            echo "| pr_review | ${PR_REVIEW} |"
+            echo "| hive | ${HIVE} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish badge data
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A .github/quality
+          git diff --cached --quiet || git commit -m "chore: update module quality badges [skip ci]"
+          git push

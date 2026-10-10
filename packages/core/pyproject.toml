@@ -1,0 +1,30 @@
+[project]
+name = "hive-core"
+version = "1.0.0"
+description = "Core infrastructure utilities for Hive agents"
+requires-python = ">=3.12"
+dependencies = [
+  "PyJWT>=2.10,<3",
+  "boto3>=1.35,<2",
+  "cryptography>=49,<51",
+  "httpx>=0.28,<1",
+  "pydantic>=2.10,<3",
+  "pydantic-settings[yaml]>=2.7,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2",
+  "pytest>=9,<10",
+  "ruff>=0.11,<1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"

@@ -1,0 +1,26 @@
+logging:
+  level: INFO
+
+review:
+  merge_enabled: true
+  allowed_risk_levels: [low, medium]
+  allowed_confidence_levels: [low, medium]
+  command_timeout_seconds: 900
+  max_diff_bytes: 200000
+  max_tool_calls: 8
+  max_tool_output_bytes: 12000
+  workspace_root: /tmp/pr_review
+
+s3:
+  bucket: hive
+  prefix: pr-review/prompts
+  system_key: system.md
+  action_prompt_prefix: actions
+  endpoint_url: http://rustfs-svc.storage.svc.cluster.local:9000
+  region: us-east-1
+  max_bytes: 100000
+
+temporal:
+  address: temporal-frontend.messaging.svc.cluster.local:7233
+  namespace: hive
+  task_queue: pr-review
